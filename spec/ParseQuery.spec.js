@@ -2170,4 +2170,80 @@ describe('Parse.Query testing', () => {
 
   });
 
+  it('should find objects with array of pointers', (done) => {
+    var objects = [];
+    while(objects.length != 5) {
+      var object = new Parse.Object('ContainedObject');
+      object.set('index', objects.length);
+      objects.push(object);
+    }
+
+    Parse.Object.saveAll(objects).then((objects) => {
+      var container = new Parse.Object('Container');
+      var pointers = objects.map((obj) => {
+        return {
+           __type: 'Pointer',
+           className: 'ContainedObject',
+           objectId: obj.id
+        }
+      })
+      container.set('objects', pointers);
+      let container2 = new Parse.Object('Container');
+      container2.set('objects', pointers.slice(2, 3));
+      return Parse.Object.saveAll([container, container2]);
+    }).then(() => {
+      let inQuery = new Parse.Query('ContainedObject');
+      inQuery.greaterThanOrEqualTo('index', 1);
+      let query = new Parse.Query('Container');
+      query.matchesQuery('objects', inQuery);
+      return query.find();
+    }).then((results) => {
+      if (results) {
+        expect(results.length).toBe(2);
+      }
+      done();
+    }).fail((err) => {
+      console.error(err);
+      fail('should not fail');
+      done();
+    })
+  })
+
+  it('query with two OR subqueries (regression test #1259)', done => {
+    let relatedObject = new Parse.Object('Class2');
+    relatedObject.save().then(relatedObject => {
+      let anObject = new Parse.Object('Class1');
+      let relation = anObject.relation('relation');
+      relation.add(relatedObject);
+      return anObject.save();
+    }).then(anObject => {
+      let q1 = anObject.relation('relation').query();
+      q1.doesNotExist('nonExistantKey1');
+      let q2 = anObject.relation('relation').query();
+      q2.doesNotExist('nonExistantKey2');
+      let orQuery = Parse.Query.or(q1, q2).find().then(results => {
+        expect(results.length).toEqual(1);
+        expect(results[0].objectId).toEqual(q1.objectId);
+        done();
+      });
+    });
+  });
+
+  it('objectId containedIn with multiple large array', done => {
+    let obj = new Parse.Object('MyClass');
+    obj.save().then(obj => {
+      let longListOfStrings = [];
+      for (let i = 0; i < 130; i++) {
+        longListOfStrings.push(i.toString());
+      }
+      longListOfStrings.push(obj.id);
+      let q = new Parse.Query('MyClass');
+      q.containedIn('objectId', longListOfStrings);
+      q.containedIn('objectId', longListOfStrings);
+      return q.find();
+    }).then(results => {
+      expect(results.length).toEqual(1);
+      done();
+    });
+  });
 });
